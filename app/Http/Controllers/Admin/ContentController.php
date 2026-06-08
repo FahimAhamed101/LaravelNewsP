@@ -123,7 +123,7 @@ class ContentController extends Controller
         $validated['image'] = $this->storeImage($request, 'image', 'storage/news');
         $validated['post_date'] = now()->format('d-m-Y');
         $validated['post_month'] = now()->format('F');
-        $validated['status'] = $request->boolean('status');
+        $this->applyNewsFlags($validated, $request);
 
         News::create($validated);
 
@@ -139,7 +139,7 @@ class ContentController extends Controller
     {
         $validated = $this->validateNews($request);
         $validated['slug'] = Str::slug($validated['title']);
-        $validated['status'] = $request->boolean('status');
+        $this->applyNewsFlags($validated, $request);
 
         if ($image = $this->storeImage($request, 'image', 'storage/news')) {
             $validated['image'] = $image;
@@ -331,6 +331,16 @@ class ContentController extends Controller
         $file->move(public_path($directory), $filename);
 
         return $directory.'/'.$filename;
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function applyNewsFlags(array &$validated, Request $request): void
+    {
+        foreach (['status', 'breaking_news', 'top_slider', 'first_section_three', 'first_section_nine'] as $field) {
+            $validated[$field] = $request->boolean($field);
+        }
     }
 
     private function notification(string $message, string $type = 'success'): array

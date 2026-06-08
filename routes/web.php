@@ -15,7 +15,7 @@ Route::get('/category/{id}/{slug}', [HomeController::class, 'categoryNews'])->na
 Route::get('/subcategory/{id}/{slug}', [HomeController::class, 'subCategoryNews'])->name('sub-category-news');
 Route::post('/search/date', [HomeController::class, 'searchByDate'])->name('search-by-date');
 Route::post('/search/name', [HomeController::class, 'searchByName'])->name('search-by-name');
-Route::get('/admin/news/{id}', [HomeController::class, 'adminNews'])->name('admin-wise-news');
+Route::get('/admin/news/{id}', [HomeController::class, 'adminNews'])->whereNumber('id')->name('admin-wise-news');
 Route::get('/photo-gallery', [HomeController::class, 'allPhotoGallery'])->name('all-photo-gallery');
 Route::get('/video-gallery', [HomeController::class, 'allVideoGallery'])->name('all-video-gallery');
 Route::get('/contact-us', [HomeController::class, 'contactUs'])->name('contact-us');
