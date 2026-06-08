@@ -1,5 +1,5 @@
 @php
-    $admin = Auth::user();
+    $admin = Auth::guard('admin')->user();
 @endphp
 <div class="navbar-custom">
     <div class="container-fluid">

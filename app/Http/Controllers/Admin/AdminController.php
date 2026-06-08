@@ -3,13 +3,18 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Auth;
-use Intervention\Image\Facades\Image;
-use Illuminate\Support\Facades\Hash;
 use App\Models\Admin;
-use Spatie\Permission\Models\Role;
-
+use App\Models\Category;
+use App\Models\ContactUs;
+use App\Models\News;
+use App\Models\PhotoGallery;
+use App\Models\Review;
+use App\Models\User;
+use App\Models\VideoGallery;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class AdminController extends Controller
 {
@@ -20,98 +25,113 @@ class AdminController extends Controller
 
     public function loginPost(Request $request)
     {
-        // dd($request->all());
-        $credentials = $request->only('email', 'password');
-        $credentials['password'] = $request->password;
-        // dd($credentials);
+        $credentials = $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+        ]);
+
         if (Auth::guard('admin')->attempt($credentials)) {
-            // dd('hi');
-            $notification1 = array(
+            $request->session()->regenerate();
+
+            $notification = [
                 'message' => 'Admin Login Successful',
-                'alert-type' => 'success'
-            );
-            return redirect()->route('admin-dashboard')->with($notification1);
-        } else {
-            $notification2 = array(
-                'message' => 'Invalid Credentials',
-                'alert-type' => 'error'
-            );
-            return back()->with($notification2);
+                'alert-type' => 'success',
+            ];
+
+            return redirect()->route('admin-dashboard')->with($notification);
         }
-    }
-    public function dashboard()
-    {
-        return view('admin.index');
+
+        $notification = [
+            'message' => 'Invalid Credentials',
+            'alert-type' => 'error',
+        ];
+
+        return back()->with($notification)->onlyInput('email');
     }
 
-    public function adminLogout()
+    public function dashboard()
+    {
+        $stats = [
+            'news' => News::count(),
+            'categories' => Category::count(),
+            'users' => User::count(),
+            'pendingReviews' => Review::where('status', false)->count(),
+            'contacts' => ContactUs::count(),
+            'photos' => PhotoGallery::count(),
+            'videos' => VideoGallery::count(),
+            'admins' => Admin::count(),
+        ];
+
+        $latestNews = News::latest()->limit(5)->get();
+
+        return view('admin.index', compact('stats', 'latestNews'));
+    }
+
+    public function adminLogout(Request $request)
     {
         Auth::guard('admin')->logout();
-        $notification = array(
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        $notification = [
             'message' => 'Admin Logout Successfully.',
-            'alert-type' => 'success'
-        );
+            'alert-type' => 'success',
+        ];
+
         return redirect()->route('admin-login')->with($notification);
     }
 
     public function adminProfile()
     {
         $admin = Auth::guard('admin')->user();
-        // dd($admin);
+
         return view('admin.profile', compact('admin'));
     }
 
     public function adminProfileUpdate(Request $request)
     {
-        // dd($request->all());
-
+        /** @var Admin $admin */
         $admin = Auth::guard('admin')->user();
-        $admin->name = $request->name;
-        $admin->email = $request->email;
-        $admin->phone = $request->phone;
-        $admin->address = $request->address;
-        $admin->facebook = $request->facebook;
-        $admin->twitter = $request->twitter;
-        $admin->youtube = $request->youtube;
-        $admin->linkedin = $request->linkedin;
-        $admin->instagram = $request->instagram;
 
-        if ($request->file('image')) {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('admins', 'email')->ignore($admin->id)],
+            'phone' => ['nullable', 'integer'],
+            'address' => ['nullable', 'string'],
+            'facebook' => ['nullable', 'string', 'max:255'],
+            'twitter' => ['nullable', 'string', 'max:255'],
+            'youtube' => ['nullable', 'string', 'max:255'],
+            'linkedin' => ['nullable', 'string', 'max:255'],
+            'instagram' => ['nullable', 'string', 'max:255'],
+            'image' => ['nullable', 'image', 'max:2048'],
+        ]);
+
+        $admin->fill($validated);
+
+        if ($request->hasFile('image')) {
+            if ($admin->image) {
+                @unlink(public_path('storage/admin/'.$admin->image));
+            }
+
             $image = $request->file('image');
-            @unlink(public_path('storage/admin/' . $admin->image));
-            $filename = 'admin' . time() . '.' . $image->getClientOriginalExtension();
-
-            // installing image intervention
-            // composer require intervention/image
-
-            // config/app.php
-            // Intervention\Image\ImageServiceProvider::class,
-            // 'Image' => Intervention\Image\Facades\Image::class,
-
-            // php artisan vendor:publish --provider="Intervention\Image\ImageServiceProviderLaravelRecent"
-
-
-            Image::make($image)->resize(256, 256)->save('storage/admin/' . $filename);
-            $filePath = 'storage/admin/' . $filename;
+            $filename = 'admin'.time().'.'.$image->getClientOriginalExtension();
+            $image->move(public_path('storage/admin'), $filename);
             $admin->image = $filename;
         }
+
         $admin->save();
 
-        $notification = array(
+        $notification = [
             'message' => 'Admin Profile Updated Successfully',
-            'alert-type' => 'success'
-
-        );
+            'alert-type' => 'success',
+        ];
 
         return redirect()->back()->with($notification);
-
     }
 
     public function changePassword()
     {
-
         return view('admin.change_password');
-
     }
 
     public function updatePassword(Request $request)
@@ -119,148 +139,144 @@ class AdminController extends Controller
 
         $request->validate([
             'old_password' => 'required',
-            'new_password' => 'required|confirmed',
+            'new_password' => 'required|confirmed|min:8',
         ]);
 
-        $hashedPassword = Auth::guard('admin')->user()->password;
-        if (Hash::check($request->old_password, $hashedPassword)) {
-            $admin = Auth::user();
-            $admin->password = bcrypt($request->new_password);
+        /** @var Admin $admin */
+        $admin = Auth::guard('admin')->user();
+
+        if (Hash::check($request->old_password, $admin->password)) {
+            $admin->password = Hash::make($request->new_password);
+            $admin->password_hint = null;
             $admin->save();
 
+            Auth::guard('admin')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
 
-            $notification1 = array(
+            $notification = [
                 'message' => 'Password Updated Successfully',
-                'alert-type' => 'success'
-            );
+                'alert-type' => 'success',
+            ];
 
-            return redirect()->route('admin-login')->with($notification1);
-        } else {
-
-            $notification2 = array(
-                'message' => 'Old password is not match',
-                'alert-type' => 'error'
-            );
-            return redirect()->back()->with($notification2);
+            return redirect()->route('admin-login')->with($notification);
         }
 
-    }
+        $notification = [
+            'message' => 'Old password is not match',
+            'alert-type' => 'error',
+        ];
 
+        return redirect()->back()->with($notification);
+    }
 
     public function allAdmin()
     {
-        $alladminusers = Admin::get();
-        // dd($alladminuser);
+        $alladminusers = Admin::latest()->get();
+
         return view('admin.admin.adminlist', compact('alladminusers'));
     }
 
     public function addAdmin()
     {
-        $roles = Role::latest()->get();
-        return view('admin.admin.addadmin', compact('roles'));
+        return view('admin.admin.addadmin');
     }
 
     public function storeAdmin(Request $request)
     {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:admins,email'],
+            'phone' => ['nullable', 'integer'],
+            'address' => ['nullable', 'string'],
+            'password' => ['required', 'confirmed', 'min:8'],
+        ]);
 
-        $admin = new Admin();
-        $admin->name = $request->name;
-        $admin->email = $request->email;
-        $admin->phone = $request->phone;
-        $admin->address = $request->address;
-        $admin->password = Hash::make($request->password);
-        $admin->password_hint = $request->password;
-        $admin->status = 0;
-        $admin->save();
+        Admin::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'password' => Hash::make($validated['password']),
+            'password_hint' => null,
+            'status' => true,
+        ]);
 
-        if ($request->roles) {
-            $admin->assignRole($request->roles);
-        }
-
-
-        $notification = array(
+        $notification = [
             'message' => 'New Admin User Created Successfully',
-            'alert-type' => 'success'
+            'alert-type' => 'success',
+        ];
 
-        );
         return redirect()->route('admin-all-list')->with($notification);
-
     }
 
     public function editAdmin($id)
     {
-        $roles = Role::latest()->get();
         $data = Admin::findOrFail($id);
-        return view('admin.admin.editadmin', compact('data', 'roles'));
 
+        return view('admin.admin.editadmin', compact('data'));
     }
 
     public function updateAdmin(Request $request)
     {
+        $admin = Admin::findOrFail($request->id);
 
-        $id = $request->id;
+        $validated = $request->validate([
+            'id' => ['required', 'integer', 'exists:admins,id'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('admins', 'email')->ignore($admin->id)],
+            'phone' => ['nullable', 'integer'],
+            'address' => ['nullable', 'string'],
+        ]);
 
-
-        $admin = Admin::findOrFail($id);
-        $admin->name = $request->name;
-        $admin->email = $request->email;
-        $admin->phone = $request->phone;
-        $admin->address = $request->address;
+        $admin->name = $validated['name'];
+        $admin->email = $validated['email'];
+        $admin->phone = $validated['phone'] ?? null;
+        $admin->address = $validated['address'] ?? null;
         $admin->save();
 
-        $admin->roles()->detach();
-        if ($request->roles) {
-            $admin->assignRole($request->roles);
-        }
-
-        $notification = array(
+        $notification = [
             'message' => 'Admin User Updated Successfully',
-            'alert-type' => 'success'
+            'alert-type' => 'success',
+        ];
 
-        );
         return redirect()->route('admin-all-list')->with($notification);
-
     }
 
     public function deleteAdmin($id)
     {
-
         $admin = Admin::findOrFail($id);
         $admin->delete();
 
-
-        $notification = array(
+        $notification = [
             'message' => 'Admin User Deleted Successfully',
-            'alert-type' => 'success'
-
-        );
+            'alert-type' => 'success',
+        ];
 
         return redirect()->back()->with($notification);
-
     }
-
 
     public function inactive($id)
     {
         Admin::findOrFail($id)->update(['status' => 0]);
-        // dd($data);
-        $notification = array(
-            'message' => 'Admin Inacative Successfully',
-            'alert-type' => 'error'
 
-        );
+        $notification = [
+            'message' => 'Admin Inactive Successfully',
+            'alert-type' => 'error',
+        ];
+
         return redirect()->back()->with($notification);
     }
 
     public function active($id)
     {
         Admin::findOrFail($id)->update(['status' => 1]);
-        // dd($data);
-        $notification = array(
-            'message' => 'Admin Acative Successfully',
-            'alert-type' => 'success'
 
-        );
+        $notification = [
+            'message' => 'Admin Active Successfully',
+            'alert-type' => 'success',
+        ];
+
         return redirect()->back()->with($notification);
     }
 }

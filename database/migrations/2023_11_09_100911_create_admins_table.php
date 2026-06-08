@@ -18,9 +18,15 @@ return new class extends Migration
             $table->bigInteger('phone')->nullable();
             $table->longText('address')->nullable();
             $table->string('image')->nullable();
+            $table->string('facebook')->nullable();
+            $table->string('twitter')->nullable();
+            $table->string('youtube')->nullable();
+            $table->string('linkedin')->nullable();
+            $table->string('instagram')->nullable();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->string('password_hint');
+            $table->string('password_hint')->nullable();
+            $table->boolean('status')->default(true);
             $table->timestamps();
         });
     }
